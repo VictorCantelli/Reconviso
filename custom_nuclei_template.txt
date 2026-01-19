@@ -1,0 +1,344 @@
+id: custom-sensitive-files-extended
+
+info:
+  name: Extended Sensitive Files Detection
+  author: OSINT Recon Pipeline
+  severity: high
+  description: |
+    Detecta arquivos sensíveis e de configuração expostos publicamente.
+    Template customizado para recon automatizado.
+  tags: exposure,config,osint,recon
+  metadata:
+    verified: true
+    max-request: 50
+  classification:
+    cvss-metrics: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N
+    cvss-score: 7.5
+    cwe-id: CWE-200
+
+http:
+  - method: GET
+    path:
+      # Environment files
+      - "{{BaseURL}}/.env"
+      - "{{BaseURL}}/.env.local"
+      - "{{BaseURL}}/.env.production"
+      - "{{BaseURL}}/.env.development"
+      - "{{BaseURL}}/.env.staging"
+      - "{{BaseURL}}/.env.backup"
+      - "{{BaseURL}}/.env.old"
+      - "{{BaseURL}}/.env.save"
+      - "{{BaseURL}}/config/.env"
+      - "{{BaseURL}}/app/.env"
+      
+      # Git exposure
+      - "{{BaseURL}}/.git/config"
+      - "{{BaseURL}}/.git/HEAD"
+      - "{{BaseURL}}/.git/index"
+      - "{{BaseURL}}/.git/logs/HEAD"
+      - "{{BaseURL}}/.gitignore"
+      - "{{BaseURL}}/.git-credentials"
+      
+      # Configuration files
+      - "{{BaseURL}}/config.php"
+      - "{{BaseURL}}/config.php.bak"
+      - "{{BaseURL}}/configuration.php"
+      - "{{BaseURL}}/config.json"
+      - "{{BaseURL}}/config.yml"
+      - "{{BaseURL}}/config.yaml"
+      - "{{BaseURL}}/config.xml"
+      - "{{BaseURL}}/settings.php"
+      - "{{BaseURL}}/settings.json"
+      - "{{BaseURL}}/app/config/config.yml"
+      - "{{BaseURL}}/application/config/database.php"
+      
+      # Database files
+      - "{{BaseURL}}/database.sql"
+      - "{{BaseURL}}/db.sql"
+      - "{{BaseURL}}/backup.sql"
+      - "{{BaseURL}}/dump.sql"
+      - "{{BaseURL}}/db_backup.sql"
+      - "{{BaseURL}}/database.sqlite"
+      - "{{BaseURL}}/db.sqlite3"
+      
+      # Backup files
+      - "{{BaseURL}}/backup.zip"
+      - "{{BaseURL}}/backup.tar.gz"
+      - "{{BaseURL}}/site-backup.tar"
+      - "{{BaseURL}}/www.zip"
+      - "{{BaseURL}}/public_html.zip"
+      - "{{BaseURL}}/htdocs.zip"
+      
+      # Web server configs
+      - "{{BaseURL}}/web.config"
+      - "{{BaseURL}}/Web.config"
+      - "{{BaseURL}}/.htaccess"
+      - "{{BaseURL}}/.htpasswd"
+      - "{{BaseURL}}/nginx.conf"
+      - "{{BaseURL}}/httpd.conf"
+      - "{{BaseURL}}/apache2.conf"
+      
+      # Docker & Container
+      - "{{BaseURL}}/Dockerfile"
+      - "{{BaseURL}}/docker-compose.yml"
+      - "{{BaseURL}}/docker-compose.yaml"
+      - "{{BaseURL}}/.dockerignore"
+      - "{{BaseURL}}/kubernetes.yml"
+      
+      # CI/CD
+      - "{{BaseURL}}/.gitlab-ci.yml"
+      - "{{BaseURL}}/.travis.yml"
+      - "{{BaseURL}}/.circleci/config.yml"
+      - "{{BaseURL}}/Jenkinsfile"
+      - "{{BaseURL}}/.github/workflows/deploy.yml"
+      
+      # Package managers
+      - "{{BaseURL}}/composer.json"
+      - "{{BaseURL}}/composer.lock"
+      - "{{BaseURL}}/package.json"
+      - "{{BaseURL}}/package-lock.json"
+      - "{{BaseURL}}/yarn.lock"
+      - "{{BaseURL}}/Gemfile"
+      - "{{BaseURL}}/Gemfile.lock"
+      - "{{BaseURL}}/requirements.txt"
+      - "{{BaseURL}}/Pipfile"
+      - "{{BaseURL}}/pom.xml"
+      
+      # AWS & Cloud
+      - "{{BaseURL}}/.aws/credentials"
+      - "{{BaseURL}}/credentials.json"
+      - "{{BaseURL}}/aws.json"
+      - "{{BaseURL}}/s3.yml"
+      
+      # API Keys & Tokens
+      - "{{BaseURL}}/api_keys.txt"
+      - "{{BaseURL}}/api-keys.json"
+      - "{{BaseURL}}/secrets.json"
+      - "{{BaseURL}}/tokens.json"
+      - "{{BaseURL}}/private-key.pem"
+      - "{{BaseURL}}/id_rsa"
+      - "{{BaseURL}}/id_rsa.pub"
+      
+      # Logs
+      - "{{BaseURL}}/error.log"
+      - "{{BaseURL}}/errors.log"
+      - "{{BaseURL}}/debug.log"
+      - "{{BaseURL}}/access.log"
+      - "{{BaseURL}}/app.log"
+      - "{{BaseURL}}/application.log"
+      
+      # PHP specific
+      - "{{BaseURL}}/phpinfo.php"
+      - "{{BaseURL}}/info.php"
+      - "{{BaseURL}}/test.php"
+      - "{{BaseURL}}/php.ini"
+      
+      # Framework specific
+      - "{{BaseURL}}/.DS_Store"
+      - "{{BaseURL}}/wp-config.php"
+      - "{{BaseURL}}/wp-config.php.bak"
+      - "{{BaseURL}}/sites/default/settings.php"
+      - "{{BaseURL}}/config/database.yml"
+      - "{{BaseURL}}/.laravel"
+      - "{{BaseURL}}/.symfony"
+      
+      # Admin & Debug pages
+      - "{{BaseURL}}/admin"
+      - "{{BaseURL}}/admin.php"
+      - "{{BaseURL}}/administrator"
+      - "{{BaseURL}}/phpmyadmin"
+      - "{{BaseURL}}/phpMyAdmin"
+      - "{{BaseURL}}/server-status"
+      - "{{BaseURL}}/server-info"
+
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        words:
+          - "DB_PASSWORD"
+          - "API_KEY"
+          - "SECRET_KEY"
+          - "AWS_SECRET"
+          - "database"
+          - "[core]"
+          - "<?php"
+          - "root:"
+          - "password"
+          - "token"
+          - "credentials"
+        condition: or
+
+      - type: dsl
+        dsl:
+          - 'len(body) > 0'
+          - 'contains(tolower(body), "env") || contains(tolower(body), "config") || contains(tolower(body), "password")'
+
+    extractors:
+      - type: regex
+        name: credentials
+        group: 1
+        regex:
+          - '(?i)(password|passwd|pwd|secret|token|api[_-]?key)\s*[:=]\s*["\']?([^\s"\'\n]+)'
+          - '(?i)(DB_[A-Z_]+)\s*=\s*["\']?([^\s"\'\n]+)'
+          - '(?i)(AWS_[A-Z_]+)\s*=\s*["\']?([^\s"\'\n]+)'
+
+      - type: regex
+        name: database
+        group: 1
+        regex:
+          - '(?i)(mysql|postgresql|mongodb|redis|sqlite)://([^\s\n]+)'
+          - '(?i)host\s*[:=]\s*["\']?([a-zA-Z0-9.-]+)'
+
+      - type: kval
+        kval:
+          - content_length
+
+---
+
+id: custom-admin-panels
+
+info:
+  name: Admin Panel Discovery
+  author: OSINT Recon Pipeline
+  severity: medium
+  description: Detecta painéis administrativos expostos
+  tags: panel,admin,login,dashboard
+  metadata:
+    verified: true
+    max-request: 30
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/admin"
+      - "{{BaseURL}}/admin/"
+      - "{{BaseURL}}/administrator"
+      - "{{BaseURL}}/admin/login"
+      - "{{BaseURL}}/admin/dashboard"
+      - "{{BaseURL}}/wp-admin"
+      - "{{BaseURL}}/wp-login.php"
+      - "{{BaseURL}}/cpanel"
+      - "{{BaseURL}}/cPanel"
+      - "{{BaseURL}}/webmail"
+      - "{{BaseURL}}/admin.php"
+      - "{{BaseURL}}/administrator.php"
+      - "{{BaseURL}}/moderator.php"
+      - "{{BaseURL}}/manager"
+      - "{{BaseURL}}/management"
+      - "{{BaseURL}}/login"
+      - "{{BaseURL}}/signin"
+      - "{{BaseURL}}/dashboard"
+      - "{{BaseURL}}/portal"
+      - "{{BaseURL}}/controlpanel"
+      - "{{BaseURL}}/console"
+      - "{{BaseURL}}/backend"
+      - "{{BaseURL}}/backoffice"
+      - "{{BaseURL}}/adminer"
+      - "{{BaseURL}}/adminer.php"
+      - "{{BaseURL}}/phpmyadmin"
+      - "{{BaseURL}}/phpMyAdmin"
+      - "{{BaseURL}}/pma"
+      - "{{BaseURL}}/dbadmin"
+      - "{{BaseURL}}/mysql"
+
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+          - 301
+          - 302
+          - 401
+          - 403
+
+      - type: word
+        words:
+          - "admin"
+          - "login"
+          - "dashboard"
+          - "sign in"
+          - "username"
+          - "password"
+          - "authentication"
+          - "control panel"
+          - "management"
+        condition: or
+        case-insensitive: true
+
+    extractors:
+      - type: regex
+        regex:
+          - '<title>([^<]+)</title>'
+
+---
+
+id: custom-info-disclosure
+
+info:
+  name: Information Disclosure Detection
+  author: OSINT Recon Pipeline
+  severity: low
+  description: Detecta vazamento de informações técnicas
+  tags: disclosure,info,debug
+  metadata:
+    verified: true
+    max-request: 15
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/phpinfo.php"
+      - "{{BaseURL}}/info.php"
+      - "{{BaseURL}}/test.php"
+      - "{{BaseURL}}/server-status"
+      - "{{BaseURL}}/server-info"
+      - "{{BaseURL}}/status"
+      - "{{BaseURL}}/.well-known/security.txt"
+      - "{{BaseURL}}/robots.txt"
+      - "{{BaseURL}}/sitemap.xml"
+      - "{{BaseURL}}/crossdomain.xml"
+      - "{{BaseURL}}/clientaccesspolicy.xml"
+
+    matchers-condition: or
+    matchers:
+      - type: word
+        words:
+          - "PHP Version"
+          - "phpinfo()"
+          - "Apache Server Status"
+          - "Server Information"
+        condition: or
+
+      - type: word
+        words:
+          - "Disallow:"
+          - "<urlset"
+          - "<?xml"
+        condition: or
+
+      - type: regex
+        regex:
+          - "(?i)(contact|security)@[a-zA-Z0-9.-]+"
+
+    extractors:
+      - type: regex
+        name: php_version
+        group: 1
+        regex:
+          - 'PHP Version ([0-9.]+)'
+
+      - type: regex
+        name: server_software
+        group: 1
+        regex:
+          - 'Server Software: ([^\n]+)'
+
+      - type: regex
+        name: email
+        group: 1
+        regex:
+          - '([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})'

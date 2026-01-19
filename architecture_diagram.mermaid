@@ -1,0 +1,120 @@
+graph TB
+    Start([🎯 Target URL Input]) --> Passive[🕵️ Passive Recon]
+    
+    subgraph "Phase 1: Passive Reconnaissance"
+        Passive --> Tech[📱 Tech Detection<br/>httpx, Wappalyzer]
+        Passive --> DNS[🌐 DNS Enumeration<br/>dnsx, subfinder]
+        Passive --> TLS[🔒 SSL/TLS Analysis<br/>httpx -tls]
+        
+        Tech --> Wayback[⏰ Wayback Machine]
+        DNS --> Wayback
+        TLS --> Wayback
+        
+        Wayback --> GAU[gau]
+        Wayback --> WBU[waybackurls]
+        GAU --> URLs[(📋 URLs Database)]
+        WBU --> URLs
+    end
+    
+    URLs --> Extract[🔑 Parameter Extraction]
+    
+    subgraph "Phase 2: OSINT Analysis"
+        Extract --> Params[GET/POST Params]
+        Extract --> Endpoints[API Endpoints]
+        Extract --> Paths[File Paths]
+        
+        Params --> OSINT[🔎 OSINT Scanning]
+        Endpoints --> OSINT
+        Paths --> OSINT
+        
+        OSINT --> Nuclei1[Nuclei - Exposures]
+        OSINT --> Nuclei2[Nuclei - Configs]
+        OSINT --> Nuclei3[Nuclei - Panels]
+        
+        Nuclei1 --> Findings1[(.env, .git, backups)]
+        Nuclei2 --> Findings2[(server configs)]
+        Nuclei3 --> Findings3[(admin panels)]
+    end
+    
+    Findings1 --> Active{Active Recon?}
+    Findings2 --> Active
+    Findings3 --> Active
+    
+    subgraph "Phase 3: Active Reconnaissance"
+        Active -->|Yes| Fuzz[🎯 Directory Fuzzing<br/>ffuf - rate limited]
+        Active -->|Yes| Validate[✅ Endpoint Validation<br/>httpx]
+        Active -->|Yes| Forms[📝 Form Detection<br/>POST endpoints]
+        
+        Fuzz --> ActiveResults[(Active Results)]
+        Validate --> ActiveResults
+        Forms --> ActiveResults
+    end
+    
+    Active -->|No| Processing
+    ActiveResults --> VulnScan
+    
+    subgraph "Phase 4: Vulnerability Scanning"
+        VulnScan[🧬 Nuclei Full Scan] --> VulnFilter[Filter by Severity]
+        VulnFilter --> Critical[🔴 Critical]
+        VulnFilter --> High[🟠 High]
+        VulnFilter --> Medium[🟡 Medium]
+        VulnFilter --> Low[🔵 Low]
+    end
+    
+    Critical --> Processing
+    High --> Processing
+    Medium --> Processing
+    Low --> Processing
+    
+    subgraph "Phase 5: Data Processing"
+        Processing[📊 Normalize Findings] --> Dedupe[Remove Duplicates]
+        Dedupe --> Classify[Classify by Type]
+        Classify --> Enrich[Enrich with Context]
+        Enrich --> JSON[(📄 normalized-findings.json)]
+    end
+    
+    JSON --> Conviso[📤 Conviso Integration]
+    
+    subgraph "Phase 6: Conviso Platform"
+        Conviso --> ProjectCheck{Project Exists?}
+        ProjectCheck -->|No| CreateProject[Create Project]
+        ProjectCheck -->|Yes| GetProject[Get Project ID]
+        
+        CreateProject --> Upload
+        GetProject --> Upload
+        
+        Upload[Upload Vulnerabilities] --> CreateVuln1[Vulnerability 1]
+        Upload --> CreateVuln2[Vulnerability 2]
+        Upload --> CreateVulnN[Vulnerability N]
+        
+        CreateVuln1 --> Summary[Create Scan Summary]
+        CreateVuln2 --> Summary
+        CreateVulnN --> Summary
+    end
+    
+    Summary --> Report[📝 Generate Report]
+    
+    subgraph "Phase 7: Notifications"
+        Report --> Markdown[Markdown Report]
+        Report --> Notify{Notify?}
+        
+        Notify -->|Slack| Slack[💬 Slack Webhook]
+        Notify -->|Discord| Discord[💬 Discord Webhook]
+        Notify -->|GitHub| Comment[💬 GitHub Comment]
+    end
+    
+    Markdown --> Artifacts[📦 Upload Artifacts]
+    Slack --> End([✅ Pipeline Complete])
+    Discord --> End
+    Comment --> End
+    Artifacts --> End
+    
+    style Start fill:#4CAF50,color:#fff
+    style End fill:#2196F3,color:#fff
+    style Passive fill:#E3F2FD
+    style OSINT fill:#FFF3E0
+    style Active fill:#FCE4EC
+    style VulnScan fill:#F3E5F5
+    style Processing fill:#E8F5E9
+    style Conviso fill:#E1F5FE
+    style Report fill:#FFF9C4
