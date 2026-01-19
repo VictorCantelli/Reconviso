@@ -111,7 +111,6 @@ git commit -m "Add Python dependencies"
 4. Preencha:
    - **Target URL**: `https://example.com` (para teste)
    - **Scope**: `passive-only` (início conservador)
-   - **Notify Slack**: `false`
 5. Click **"Run workflow"**
 
 ### Via GitHub CLI
@@ -120,7 +119,6 @@ git commit -m "Add Python dependencies"
 gh workflow run osint-recon.yml \
   -f target=https://example.com \
   -f scope=passive-only \
-  -f notify_slack=false
 ```
 
 ## ✅ Verificação de Setup
@@ -131,7 +129,6 @@ gh workflow run osint-recon.yml \
 - [ ] Workflow YAML no lugar correto
 - [ ] Script Python de integração adicionado
 - [ ] Secret `CONVISO_API_KEY` configurado
-- [ ] (Opcional) Secret `SLACK_WEBHOOK_URL` configurado
 - [ ] Primeiro workflow executado com sucesso
 
 ### Verificar resultado
@@ -159,7 +156,6 @@ Após execução do workflow:
 
 ### Nível 2: Intermediário
 - [ ] Ativar `passive-active-light` scope
-- [ ] Configurar notificações Slack
 - [ ] Criar wordlists customizadas
 - [ ] Adicionar nuclei templates próprios
 
@@ -178,7 +174,6 @@ Após execução do workflow:
 gh workflow run osint-recon.yml \
   -f target=https://seu-site.com \
   -f scope=full-recon \
-  -f notify_slack=true
 ```
 
 ### Agendar scan semanal
