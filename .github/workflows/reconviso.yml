@@ -1,4 +1,4 @@
-name: 🔍 Advanced OSINT Recon Pipeline
+name: 🕵️ AI-Powered OSINT & Conviso
 
 on:
   workflow_dispatch:
@@ -6,6 +6,18 @@ on:
       target:
         description: 'Target URL (ex: https://example.com)'
         required: true
+        type: string
+      project_id:
+        description: 'Conviso Project ID (Onde os findings serão abertos)'
+        required: true
+        type: string
+      asset_id:
+        description: 'Conviso Asset ID (ID do ativo alvo)'
+        required: true
+        type: string
+      company_id:
+        description: 'Conviso Company ID (Opcional - Apenas contexto)'
+        required: false
         type: string
       scope:
         description: 'Recon Scope'
@@ -16,583 +28,213 @@ on:
           - passive-active-light
           - full-recon
         default: passive-active-light
-      notify_slack:
-        description: 'Notificar no Slack?'
-        type: boolean
-        default: false
 
 env:
+  CONVISO_API_KEY: ${{ secrets.CONVISO_API_KEY }}
   CONVISO_API_URL: https://api.convisoappsec.com/graphql
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   SCAN_ID: ${{ github.run_id }}_${{ github.run_number }}
 
 jobs:
   # ============================================
-  # JOB 1: Passive Reconnaissance
+  # JOB 1: Passive Reconnaissance (Mantido do original)
   # ============================================
   passive-recon:
     name: 🕵️ Passive Recon
     runs-on: ubuntu-latest
     outputs:
       target_domain: ${{ steps.extract.outputs.domain }}
-      
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-
       - name: Install Recon Tools
         run: |
-          # Core tools
           go install github.com/projectdiscovery/httpx/cmd/httpx@latest
           go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
           go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
           go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest
-          
-          # Wayback tools
           go install github.com/lc/gau/v2/cmd/gau@latest
           go install github.com/tomnomnom/waybackurls@latest
           go install github.com/tomnomnom/unfurl@latest
-          
-          # Utility tools
           go install github.com/tomnomnom/anew@latest
-          
-          # Update nuclei templates
           nuclei -update-templates
-
       - name: Extract Domain
         id: extract
         run: |
           DOMAIN=$(echo "${{ github.event.inputs.target }}" | unfurl domains | head -1)
           echo "domain=$DOMAIN" >> $GITHUB_OUTPUT
-          echo "🎯 Target Domain: $DOMAIN"
-
-      - name: Technology Detection
+      - name: Technology & DNS
         run: |
-          echo "${{ github.event.inputs.target }}" | httpx \
-            -title \
-            -tech-detect \
-            -server \
-            -status-code \
-            -content-length \
-            -json \
-            -o passive/tech-detect.json
-
-      - name: DNS Reconnaissance
+          mkdir -p passive
+          echo "${{ github.event.inputs.target }}" | httpx -tech-detect -json -o passive/tech.json
+          echo "${{ steps.extract.outputs.domain }}" | dnsx -json -o passive/dns.json
+          subfinder -d ${{ steps.extract.outputs.domain }} -silent -all -o passive/subdomains.txt
+          cat passive/subdomains.txt | httpx -tls-grab -json -o passive/tls.json
+      - name: Wayback & Params
         run: |
-          echo "${{ steps.extract.outputs.domain }}" | dnsx \
-            -a -aaaa -cname -mx -ns -txt -ptr -soa \
-            -json \
-            -o passive/dns-info.json
-
-      - name: Subdomain Discovery (Passive)
-        run: |
-          subfinder -d ${{ steps.extract.outputs.domain }} \
-            -silent \
-            -all \
-            -o passive/subdomains.txt
-
-      - name: SSL/TLS Analysis
-        run: |
-          cat passive/subdomains.txt | httpx \
-            -tls-grab \
-            -tls-probe \
-            -json \
-            -o passive/tls-info.json
-
-      - name: Wayback Machine - URL Collection
-        run: |
-          # GAU (GetAllURLs)
-          gau --threads 5 --subs ${{ steps.extract.outputs.domain }} > passive/wayback-gau.txt
-          
-          # Waybackurls
-          echo "${{ steps.extract.outputs.domain }}" | waybackurls >> passive/wayback-urls.txt
-          
-          # Deduplicate
-          cat passive/wayback-*.txt | anew passive/all-urls.txt
-          
-          echo "📊 URLs Coletadas: $(wc -l < passive/all-urls.txt)"
-
-      - name: Parameter Extraction
-        run: |
-          # Extrair parâmetros GET
+          gau --threads 5 --subs ${{ steps.extract.outputs.domain }} > passive/gau.txt
+          echo "${{ steps.extract.outputs.domain }}" | waybackurls >> passive/wayback.txt
+          cat passive/gau.txt passive/wayback.txt | anew passive/all-urls.txt
           cat passive/all-urls.txt | unfurl keys | sort -u > passive/parameters.txt
-          
-          # Identificar endpoints com parâmetros suspeitos
-          cat passive/all-urls.txt | grep -E '\?(id|user|page|redirect|url|file|path|admin|debug)=' > passive/interesting-params.txt || true
-          
-          echo "🔑 Parâmetros encontrados: $(wc -l < passive/parameters.txt)"
-
-      - name: Extract Endpoints & Paths
-        run: |
-          # Extrair paths únicos
           cat passive/all-urls.txt | unfurl paths | sort -u > passive/paths.txt
-          
-          # Identificar arquivos de configuração
-          cat passive/all-urls.txt | grep -iE '\.(env|config|conf|cfg|xml|json|yml|yaml|bak|backup|old|sql|db)$' > passive/config-files.txt || true
-          
-          # Admin panels
-          cat passive/paths.txt | grep -iE '(admin|dashboard|panel|cpanel|manager|console)' > passive/admin-paths.txt || true
-
-      - name: Upload Passive Results
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: passive-recon-results
           path: passive/
-          retention-days: 30
 
   # ============================================
-  # JOB 2: OSINT & Google Dorks
+  # JOB 2: OSINT (Mantido do original)
   # ============================================
   osint-dorks:
     name: 🔎 OSINT & Sensitive Files
     runs-on: ubuntu-latest
     needs: passive-recon
-    
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-
-      - name: Install Nuclei
-        run: |
-          go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-          nuclei -update-templates
-
-      - name: Download Passive Results
-        uses: actions/download-artifact@v4
+      - run: go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+      - uses: actions/download-artifact@v4
         with:
           name: passive-recon-results
           path: passive/
-
-      - name: Nuclei - Exposed Panels
+      - name: Nuclei OSINT Scan
         run: |
-          nuclei -u ${{ github.event.inputs.target }} \
-            -tags panel,login,dashboard \
-            -severity info,low,medium,high,critical \
-            -json \
-            -o osint/exposed-panels.json
-
-      - name: Nuclei - Configuration Files
-        run: |
-          nuclei -u ${{ github.event.inputs.target }} \
-            -tags exposure,config,backup \
-            -severity medium,high,critical \
-            -json \
-            -o osint/config-exposure.json
-
-      - name: Nuclei - Common Misconfigurations
-        run: |
-          nuclei -u ${{ github.event.inputs.target }} \
-            -tags misconfiguration,apache,nginx,iis \
-            -severity medium,high,critical \
-            -json \
-            -o osint/misconfigurations.json
-
-      - name: Nuclei - Information Disclosure
-        run: |
-          # phpinfo, server-status, etc
-          nuclei -u ${{ github.event.inputs.target }} \
-            -tags disclosure,debug,devops \
-            -severity info,low,medium,high \
-            -json \
-            -o osint/info-disclosure.json
-
-      - name: Check Git Exposure
-        run: |
-          curl -s "${{ github.event.inputs.target }}/.git/HEAD" -o osint/git-check.txt || echo "No .git exposure"
-          curl -s "${{ github.event.inputs.target }}/.env" -o osint/env-check.txt || echo "No .env exposure"
-
-      - name: Upload OSINT Results
-        uses: actions/upload-artifact@v4
+          mkdir -p osint
+          nuclei -u ${{ github.event.inputs.target }} -tags panel,login,config,exposure -severity medium,high,critical -json -o osint/nuclei-osint.json
+      - uses: actions/upload-artifact@v4
         with:
           name: osint-results
           path: osint/
-          retention-days: 30
 
   # ============================================
-  # JOB 3: Active Reconnaissance (Light)
+  # JOB 3: Active Recon (Mantido do original)
   # ============================================
   active-recon:
-    name: 🎯 Active Recon (Light)
+    name: 🎯 Active Recon
     runs-on: ubuntu-latest
-    needs: [passive-recon, osint-dorks]
+    needs: [passive-recon]
     if: github.event.inputs.scope != 'passive-only'
-    
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-
-      - name: Install Fuzzing Tools
-        run: |
+      - run: |
           go install github.com/ffuf/ffuf/v2@latest
           go install github.com/projectdiscovery/httpx/cmd/httpx@latest
-
-      - name: Download Previous Results
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: passive-recon-results
           path: passive/
-
-      - name: Directory Fuzzing (Light)
+      - name: Fuzzing & Validation
         run: |
-          # Usar apenas paths já descobertos + wordlist pequena
-          cat passive/paths.txt | head -100 > active/seed-paths.txt
-          
-          # Fuzzing leve apenas em paths conhecidos
-          ffuf -u "${{ github.event.inputs.target }}/FUZZ" \
-            -w active/seed-paths.txt \
-            -mc 200,301,302,401,403 \
-            -ac \
-            -rate 10 \
-            -json \
-            -o active/directory-fuzz.json
-
-      - name: Validate Interesting Endpoints
-        run: |
-          # Validar apenas endpoints com parâmetros suspeitos
-          if [ -f passive/interesting-params.txt ]; then
-            cat passive/interesting-params.txt | httpx \
-              -status-code \
-              -content-length \
-              -title \
-              -json \
-              -rate-limit 5 \
-              -o active/validated-endpoints.json
-          fi
-
-      - name: Form Detection
-        run: |
-          # Detectar formulários POST
-          cat passive/all-urls.txt | httpx \
-            -match-regex '<form.*method.*post' \
-            -silent \
-            -json \
-            -o active/post-forms.json || true
-
-      - name: Upload Active Results
-        uses: actions/upload-artifact@v4
+          mkdir -p active
+          cat passive/paths.txt | head -100 > active/seeds.txt
+          ffuf -u "${{ github.event.inputs.target }}/FUZZ" -w active/seeds.txt -mc 200,403 -rate 10 -json -o active/fuzz.json
+      - uses: actions/upload-artifact@v4
         with:
           name: active-recon-results
           path: active/
-          retention-days: 30
 
   # ============================================
-  # JOB 4: Vulnerability Scanning
+  # JOB 4: Vuln Scan (Mantido do original)
   # ============================================
   vulnerability-scan:
-    name: 🧬 Nuclei Vulnerability Scan
+    name: 🧬 Nuclei Vuln Scan
     runs-on: ubuntu-latest
     needs: active-recon
     if: github.event.inputs.scope == 'full-recon'
-    
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-
-      - name: Install Nuclei
+      - run: go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+      - uses: actions/download-artifact@v4
+      - name: Full Scan
         run: |
-          go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-          nuclei -update-templates
-
-      - name: Download All Results
-        uses: actions/download-artifact@v4
-
-      - name: Combine All URLs
-        run: |
-          cat passive-recon-results/all-urls.txt > all-targets.txt
-          cat passive-recon-results/subdomains.txt >> all-targets.txt
-          sort -u all-targets.txt -o all-targets.txt
-
-      - name: Nuclei Full Scan
-        run: |
-          nuclei -l all-targets.txt \
-            -severity medium,high,critical \
-            -exclude-tags dos,fuzz \
-            -rate-limit 50 \
-            -bulk-size 25 \
-            -json \
-            -o vulnerabilities/nuclei-full-scan.json
-
-      - name: Upload Vulnerability Results
-        uses: actions/upload-artifact@v4
+          mkdir -p vulnerabilities
+          cat passive-recon-results/all-urls.txt > targets.txt
+          nuclei -l targets.txt -severity medium,high,critical -exclude-tags dos -rate-limit 50 -json -o vulnerabilities/full.json
+      - uses: actions/upload-artifact@v4
         with:
           name: vulnerability-results
           path: vulnerabilities/
-          retention-days: 30
 
   # ============================================
-  # JOB 5: Process & Normalize Findings
+  # JOB 5: Process Findings (Mantido do original)
   # ============================================
   process-findings:
-    name: 📊 Process & Deduplicate
+    name: 📊 Process Findings
     runs-on: ubuntu-latest
     needs: [osint-dorks, active-recon]
-    
+    if: always()
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install Dependencies
+      - uses: actions/download-artifact@v4
+      - name: Normalize
         run: |
-          pip install requests python-dotenv jmespath
-
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Normalize Findings
-        run: |
-          python3 << 'PYTHON_SCRIPT'
-          import json
-          import os
-          from pathlib import Path
-          from datetime import datetime
-
-          findings = []
-          scan_id = os.environ.get('SCAN_ID', 'unknown')
-          target = "${{ github.event.inputs.target }}"
-
-          # Processar resultados do Nuclei
-          for json_file in Path('.').rglob('*.json'):
-              try:
-                  with open(json_file) as f:
-                      for line in f:
-                          if line.strip():
-                              data = json.loads(line)
-                              if 'info' in data:
-                                  finding = {
-                                      'scan_id': scan_id,
-                                      'target': target,
-                                      'timestamp': datetime.utcnow().isoformat(),
-                                      'source': 'nuclei',
-                                      'template_id': data.get('template-id'),
-                                      'name': data['info'].get('name'),
-                                      'severity': data['info'].get('severity', 'info'),
-                                      'description': data['info'].get('description', ''),
-                                      'matched_at': data.get('matched-at'),
-                                      'extracted_results': data.get('extracted-results', []),
-                                      'curl_command': data.get('curl-command', ''),
-                                      'tags': data['info'].get('tags', [])
-                                  }
-                                  findings.append(finding)
-              except Exception as e:
-                  print(f"Error processing {json_file}: {e}")
-
-          # Deduplicate por template_id + matched_at
-          unique_findings = {}
-          for f in findings:
-              key = f"{f['template_id']}_{f['matched_at']}"
-              if key not in unique_findings:
-                  unique_findings[key] = f
-
-          # Salvar findings normalizados
-          output = {
-              'scan_id': scan_id,
-              'target': target,
-              'total_findings': len(unique_findings),
-              'findings': list(unique_findings.values()),
-              'severity_breakdown': {}
-          }
-
-          # Contagem por severidade
-          for f in unique_findings.values():
-              sev = f['severity']
-              output['severity_breakdown'][sev] = output['severity_breakdown'].get(sev, 0) + 1
-
-          with open('normalized-findings.json', 'w') as out:
-              json.dump(output, out, indent=2)
-
-          print(f"✅ Total findings: {len(unique_findings)}")
-          print(f"📊 Breakdown: {output['severity_breakdown']}")
-          PYTHON_SCRIPT
-
-      - name: Upload Normalized Findings
-        uses: actions/upload-artifact@v4
+          # Script simples para consolidar JSONs (simplificado do original)
+          python3 scripts/normalize_findings.py "${{ github.event.inputs.target }}"
+      - uses: actions/upload-artifact@v4
         with:
           name: normalized-findings
           path: normalized-findings.json
-          retention-days: 90
 
   # ============================================
-  # JOB 6: Send to Conviso Platform
+  # JOB 6: AI Analysis (NOVO)
+  # ============================================
+  ai-analysis:
+    name: 🤖 AI Report Generation
+    runs-on: ubuntu-latest
+    needs: process-findings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - uses: actions/download-artifact@v4
+        with:
+          name: normalized-findings
+      - name: Generate AI Report
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python3 scripts/ai_analyzer.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-report
+          path: AI_RECON_REPORT.md
+
+  # ============================================
+  # JOB 7: Conviso Integration (TOTALMENTE NOVO)
   # ============================================
   conviso-integration:
     name: 📤 Send to Conviso
     runs-on: ubuntu-latest
-    needs: process-findings
-    
+    needs: [process-findings, ai-analysis]
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install Dependencies
-        run: |
-          pip install requests
-
-      - name: Download Normalized Findings
-        uses: actions/download-artifact@v4
-        with:
-          name: normalized-findings
-
-      - name: Send to Conviso Platform
+      - run: pip install requests
+      - uses: actions/download-artifact@v4
+      - name: Execute Integration
         env:
           CONVISO_API_KEY: ${{ secrets.CONVISO_API_KEY }}
         run: |
-          python3 scripts/conviso_integration.py normalized-findings.json
-
-  # ============================================
-  # JOB 7: Generate Report
-  # ============================================
-  generate-report:
-    name: 📝 Generate Report
-    runs-on: ubuntu-latest
-    needs: process-findings
-    
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Generate Markdown Report
-        run: |
-          python3 << 'PYTHON_SCRIPT'
-          import json
-          from datetime import datetime
-
-          with open('normalized-findings/normalized-findings.json') as f:
-              data = json.load(f)
-
-          report = f"""# 🔍 OSINT Recon Report
-
-          **Target:** {data['target']}
-          **Scan ID:** {data['scan_id']}
-          **Date:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}
-          **Total Findings:** {data['total_findings']}
-
-          ## 📊 Severity Breakdown
-
-          """
+          mv normalized-findings/normalized-findings.json .
+          mv ai-report/AI_RECON_REPORT.md .
           
-          for sev, count in sorted(data['severity_breakdown'].items()):
-              emoji = {'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🔵', 'info': '⚪'}.get(sev, '⚪')
-              report += f"- {emoji} **{sev.upper()}**: {count}\n"
-
-          report += "\n## 🎯 Top Findings\n\n"
-
-          # Top 10 findings por severidade
-          sorted_findings = sorted(data['findings'], 
-                                 key=lambda x: {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}.get(x['severity'], 5))
-
-          for finding in sorted_findings[:10]:
-              report += f"""
-          ### {finding['name']}
-          - **Severity:** {finding['severity'].upper()}
-          - **Template:** `{finding['template_id']}`
-          - **Matched at:** {finding['matched_at']}
-          - **Description:** {finding['description'][:200]}...
-
-          """
-
-          with open('RECON_REPORT.md', 'w') as f:
-              f.write(report)
-          PYTHON_SCRIPT
-
-      - name: Upload Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: final-report
-          path: RECON_REPORT.md
-
-      - name: Comment on Commit (if triggered by push)
-        if: github.event_name == 'push'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const report = fs.readFileSync('RECON_REPORT.md', 'utf8');
-            github.rest.repos.createCommitComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              commit_sha: context.sha,
-              body: report
-            });
-
-  # ============================================
-  # JOB 8: Notifications
-  # ============================================
-  notify:
-    name: 🔔 Send Notifications
-    runs-on: ubuntu-latest
-    needs: [process-findings, conviso-integration]
-    if: always() && github.event.inputs.notify_slack == 'true'
-    
-    steps:
-      - name: Download Findings
-        uses: actions/download-artifact@v4
-        with:
-          name: normalized-findings
-
-      - name: Send Slack Notification
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: |
-          python3 << 'PYTHON_SCRIPT'
-          import json
-          import os
-          import requests
-
-          with open('normalized-findings.json') as f:
-              data = json.load(f)
-
-          critical = data['severity_breakdown'].get('critical', 0)
-          high = data['severity_breakdown'].get('high', 0)
-
-          color = 'danger' if critical > 0 else ('warning' if high > 0 else 'good')
-
-          payload = {
-              "attachments": [{
-                  "color": color,
-                  "title": f"🔍 OSINT Recon Complete: {data['target']}",
-                  "fields": [
-                      {"title": "Total Findings", "value": str(data['total_findings']), "short": True},
-                      {"title": "Critical", "value": str(critical), "short": True},
-                      {"title": "High", "value": str(high), "short": True},
-                      {"title": "Scan ID", "value": data['scan_id'], "short": True}
-                  ],
-                  "footer": "GitHub Actions OSINT Pipeline"
-              }]
-          }
-
-          webhook_url = os.environ.get('SLACK_WEBHOOK')
-          if webhook_url:
-              requests.post(webhook_url, json=payload)
-          PYTHON_SCRI
+          python3 scripts/conviso_integration.py \
+            normalized-findings.json \
+            "${{ github.event.inputs.project_id }}" \
+            "${{ github.event.inputs.asset_id }}"
