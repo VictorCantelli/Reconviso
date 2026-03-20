@@ -14,9 +14,12 @@ on:
       stealth_level:
         description: 'Stealth Level'
         required: false
-        type: choice:
-          options: ['ultra', 'low', 'normal']
-          default: 'low'
+        type: choice
+        options:
+          - ultra
+          - low
+          - normal
+        default: low
 
 env:
   SCAN_ID: ${{ github.run_id }}
