@@ -231,19 +231,15 @@ jobs:
         run: |
           mkdir -p stealth-report
           
-          cat > stealth-report/STEALTH-RECON.md << EOF
-# RECON REPORT
-**Target:** $DOMAIN 
-**Stealth:** $STEALTH_LEVEL 
-**Max Rate:** $MAX_RATE req/s
-**Scan ID:** $SCAN_ID
-
-## SUMMARY
-EOF
-
-          SUBS=$(find results/ -name "*subdomains*" -exec cat {} + 2>/dev/null | wc -l)
-          LIVE=$(cat results/*/live.json 2>/dev/null | jq length 2>/dev/null || echo 0)
-          VULN=$(cat results/*/nuclei.jsonl 2>/dev/null | wc -l)
+          # Header usando printf (evita YAML parsing)
+          printf "# 🥷 STEALTH RECON REPORT\n**Target:** %s\n**Stealth:** %s\n**Max Rate:** %s req/s\n**Scan ID:** %s\n\n## 📊 SUMMARY\n" \
+            "$DOMAIN" "$STEALTH_LEVEL" "$MAX_RATE" "$SCAN_ID" > stealth-report/STEALTH-RECON.md
           
-          cat >> stealth-report/STEALTH-RECON.md << EOF
+          # Stats
+          SUBS=$(find results/ -name "*subdomains*" -exec cat {} + 2>/dev/null | wc -l 2>/dev/null || echo 0)
+          LIVE=$(cat results/*/live.json 2>/dev/null | jq length 2>/dev/null || echo 0)
+          VULN=$(cat results/*/nuclei.jsonl 2>/dev/null | wc -l 2>/dev/null || echo 0)
+          
+          # Table
+          cat >> stealth-report/STEALTH-RECON.md << 'TABLE_EOF'
 
