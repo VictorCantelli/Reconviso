@@ -79,7 +79,7 @@ jobs:
           go install github.com/tomnomnom/waybackurls@latest
           go install github.com/tomnomnom/unfurl@latest
           go install github.com/tomnomnom/anew@latest
-          go install github.com/projectdiscovery/certspotter/cmd/certspotter@latest
+          go install software.sslmate.com/src/certspotter/cmd/certspotter@latest
 
       - name: Passive Recon
         run: |
